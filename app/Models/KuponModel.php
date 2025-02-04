@@ -8,10 +8,12 @@ class KuponModel extends Model
 {
     protected $table = 'kupon';
     protected $primaryKey = 'id_kupon';
-    protected $allowedFields = ['kode_kupon', 'diskon', 'tanggal_expired', 'qr_code'];
+    protected $allowedFields = ['nama_kupon', 'diskon', 'tanggal_expired'];
 
-    public function deleteExpiredKupon()
+    public function getValidKupon($kode)
     {
-        $this->where('tanggal_expired <', date('Y-m-d'))->delete();
+        return $this->where('nama_kupon', $kode)
+            ->where('tanggal_expired >=', date('Y-m-d'))
+            ->first();
     }
 }

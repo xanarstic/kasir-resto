@@ -5,8 +5,7 @@ namespace App\Controllers;
 use App\Models\MenuModel;
 use App\Models\PaketModel;
 use App\Models\KuponModel;
-use Endroid\QrCode\QrCode;
-use Endroid\QrCode\Writer\PngWriter;
+use App\Models\memberModel;
 use CodeIgniter\Controller;
 
 class Home extends BaseController
@@ -18,153 +17,99 @@ class Home extends BaseController
 
 	public function menu()
 	{
-		$menuModel = new MenuModel();
-		$paketModel = new PaketModel();
+		$model = new MenuModel();
 
-		$data = [
-			'menus' => $menuModel->getMenus(),
-			'pakets' => $paketModel->getPaketMenus()
-		];
+		// Ambil kategori unik dari tabel menu
+		$data['kategori'] = $model->select('kategori')->distinct()->find();
+
+		// Cek apakah ada kategori yang dipilih di URL atau request
+		$kategori_filter = $this->request->getVar('kategori');
+
+		// Jika ada kategori filter, ambil menu yang sesuai
+		if ($kategori_filter) {
+			$data['menu'] = $model->where('kategori', $kategori_filter)->findAll();
+		} else {
+			$data['menu'] = $model->findAll(); // Ambil semua menu jika tidak ada filter
+		}
 
 		echo view('header');
 		echo view('sidebar');
 		echo view('menu', $data);
 	}
 
+	public function cek_diskon()
+	{
+		$kuponModel = new KuponModel();
+		$memberModel = new MemberModel();
+
+		$kode_kupon = $this->request->getPost('kode_kupon');
+		$kode_member = $this->request->getPost('kode_member');
+
+		$diskon = 0;
+
+		// Cek diskon dari kupon
+		if (!empty($kode_kupon)) {
+			$kupon = $kuponModel->where('nama_kupon', $kode_kupon)->where('tanggal_expired >=', date('Y-m-d'))->first();
+			if ($kupon) {
+				$diskon += $kupon['diskon'];
+			}
+		}
+
+		// Cek diskon dari member
+		if (!empty($kode_member)) {
+			$member = $memberModel->where('id_member', $kode_member)->where('tanggal_expired >=', date('Y-m-d'))->where('status', 'aktif')->first();
+			if ($member) {
+				$diskon += 10; // Misalnya diskon member 10%
+			}
+		}
+
+		return $this->response->setJSON(['diskon' => $diskon]);
+	}
+
 	public function tambahMenu()
 	{
+		// Pastikan model sudah didefinisikan sebelum digunakan
 		$menuModel = new MenuModel();
 
-		$data = [
-			'nama_menu' => $this->request->getPost('nama_menu'),
-			'harga' => $this->request->getPost('harga'),
-			'kategori' => $this->request->getPost('kategori'),
-			'deskripsi' => $this->request->getPost('deskripsi'),
-			'status' => 'tersedia',
-			'created_at' => date('Y-m-d H:i:s'),
-			'foto' => $this->request->getFile('foto')->getName()
-		];
+		if ($this->request->getMethod() == 'post') {
+			$kategori = $this->request->getPost('kategori');
 
-		// Pindahkan file ke folder public/upload/menu
-		$this->request->getFile('foto')->move(WRITEPATH . '../public/upload/menu');
-
-		$menuModel->insert($data);
-
-		return redirect()->to('home/menu');
-	}
-
-	public function tambahPaket()
-	{
-		$paketModel = new PaketModel();
-
-		$data = [
-			'nama_paket' => $this->request->getPost('nama_paket'),
-			'harga' => $this->request->getPost('harga'),
-			'deskripsi' => $this->request->getPost('deskripsi'),
-			'status' => 'tersedia',
-			'created_at' => date('Y-m-d H:i:s'),
-			'foto' => $this->request->getFile('foto')->getName()
-		];
-
-		// Pindahkan file ke folder public/upload/paket
-		$this->request->getFile('foto')->move(WRITEPATH . '../public/upload/paket');
-
-		$paketModel->insert($data);
-
-		return redirect()->to('home/menu');
-	}
-
-	public function changeStatusMenu($id)
-	{
-		$menuModel = new MenuModel();
-		$menu = $menuModel->find($id);
-
-		if ($menu) {
-			$newStatus = ($menu['status'] === 'tersedia') ? 'tidak tersedia' : 'tersedia';
-			$menuModel->update($id, ['status' => $newStatus]);
-		}
-
-		return redirect()->to('home/menu');
-	}
-
-	public function changeStatusPaket($id)
-	{
-		$paketModel = new PaketModel();
-		$paket = $paketModel->find($id);
-
-		if ($paket) {
-			$newStatus = ($paket['status'] === 'tersedia') ? 'tidak tersedia' : 'tersedia';
-			$paketModel->update($id, ['status' => $newStatus]);
-		}
-
-		return redirect()->to('home/menu');
-	}
-
-	public function deleteMenu($id)
-	{
-		$menuModel = new MenuModel();
-		$menu = $menuModel->find($id);
-
-		if ($menu) {
-			// Hapus file foto jika diperlukan
-			$filePath = WRITEPATH . '../public/upload/menu/' . $menu['foto'];
-			if (file_exists($filePath) && !is_dir($filePath)) { // Pastikan ini adalah file, bukan direktori
-				unlink($filePath);
+			// Cek jika kategori baru dimasukkan
+			if ($kategori == 'new') {
+				$kategori_baru = $this->request->getPost('kategori-input'); // Ambil kategori baru yang dimasukkan
+				if ($kategori_baru) {
+					// Simpan kategori baru ke dalam database
+					$menuModel->db->table('kategori')->insert(['kategori' => $kategori_baru]);
+					$kategori = $kategori_baru; // Set kategori ke kategori baru yang dimasukkan
+				}
 			}
 
-			$menuModel->delete($id);
-		}
-
-		return redirect()->to('home/menu');
-	}
-
-	public function deletePaket($id)
-	{
-		$paketModel = new PaketModel();
-		$paket = $paketModel->find($id);
-
-		if ($paket) {
-			// Hapus file foto jika diperlukan
-			$filePath = WRITEPATH . '../public/upload/paket/' . $paket['foto'];
-			if (file_exists($filePath) && !is_dir($filePath)) { // Pastikan ini adalah file, bukan direktori
-				unlink($filePath);
+			// Menangani upload foto
+			$foto = $this->request->getFile('foto');
+			if ($foto->isValid() && !$foto->hasMoved()) {
+				$fotoName = $foto->getRandomName();
+				$foto->move(WRITEPATH . 'uploads/menu', $fotoName);
+			} else {
+				$fotoName = 'default.jpg'; // Default image if no file is uploaded
 			}
 
-			$paketModel->delete($id);
+			// Menyimpan data menu
+			$data = [
+				'nama_menu'  => $this->request->getPost('nama_menu'),
+				'harga'      => $this->request->getPost('harga'),
+				'kategori'   => $kategori, // Gunakan kategori yang sudah dipilih atau kategori baru
+				'deskripsi'  => $this->request->getPost('deskripsi'),
+				'foto'       => $fotoName,
+				'created_at' => date('Y-m-d H:i:s')
+			];
+
+			$menuModel->insert($data); // Gunakan insert untuk menambahkan data baru
+			return redirect()->to('home/menu')->with('success', 'Menu berhasil ditambahkan');
 		}
 
-		return redirect()->to('home/menu');
-	}
+		// Ambil kategori unik dari tabel menu
+		$kategori = $menuModel->select('kategori')->distinct()->find();
 
-	public function kupon()
-	{
-		$kuponModel = new KuponModel();
-		$kuponModel->deleteExpiredKupon(); // Hapus kupon yang kadaluarsa
-		$data['kupon'] = $kuponModel->findAll();
-
-		echo view('header');
-		echo view('sidebar');
-		echo view('kupon', $data);
-	}
-
-	public function hapus($id_kupon)
-	{
-		$kuponModel = new KuponModel();
-		$kupon = $kuponModel->find($id_kupon);
-
-		// Hapus QR Code file jika ada
-		if ($kupon) {
-			$qrPath = FCPATH . 'upload/qrcode/' . $kupon['qr_code'];
-			if (file_exists($qrPath)) {
-				unlink($qrPath); // Menghapus file QR Code
-			}
-
-			// Hapus data kupon dari database
-			$kuponModel->delete($id_kupon);
-
-			return redirect()->to(base_url('home/kupon'))->with('success', 'Kupon berhasil dihapus!');
-		}
-
-		return redirect()->to(base_url('home/kupon'))->with('error', 'Kupon tidak ditemukan!');
+		return view('menu', ['kategori' => $kategori]);
 	}
 }
